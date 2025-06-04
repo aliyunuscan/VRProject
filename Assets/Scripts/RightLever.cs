@@ -11,84 +11,59 @@ public class RightLever : MonoBehaviour
     [Header("CraneController Reference")]
     public CraneController CraneController;
 
-    [Header("Right Contr. Thumstick Action")]
-    [Tooltip("XRI Default Input Actions → XRI RightHand → Thumbstick")]
-    public InputActionReference rightThumbstick;
+    [Header("Right Contr. Thumstick Action")] //XRI Default Input Actions → XRI RightHand → Thumbstick
+    private InputAction rightThumbstickAction;
 
-    // Lever’ın grab durumunu tutacak bayrak
-    private bool isGrabbed = false;
-
-    // XRGrabInteractable referansı (aynı GameObject üzerinde olmalı)
     private XRGrabInteractable grabInteractable;
-
     private float deadzone = 0.1f;
-
     private Coroutine holdCoroutine = null;
+    private bool isGrabbed = false;
 
     private void Awake()
     {
         grabInteractable = GetComponent<XRGrabInteractable>();
-        if(grabInteractable == null)
-        {
-            Debug.LogError("XRGrabInteractable could ntot found on RightLever");
-            return;
-        }
-
+        
         grabInteractable.selectEntered.AddListener(OnGrabbed);
         grabInteractable.selectExited.AddListener(OnReleased);
-
-        isGrabbed = true; //Test purpose
     }
 
     private void OnGrabbed(SelectEnterEventArgs enterArgs)
     {
         isGrabbed = true;
-
-        if(rightThumbstick != null && rightThumbstick.action != null)
-        {
-            rightThumbstick.action.Enable();
-        }
+        rightThumbstickAction.Enable();
     }
-
     private void OnReleased(SelectExitEventArgs exitArgs)
     {
         isGrabbed = false;
-
         if(holdCoroutine != null)
         {
             StopCoroutine(holdCoroutine);
             holdCoroutine = null;
         }
 
-        if(rightThumbstick != null && rightThumbstick.action != null)
-        {
-            rightThumbstick.action.Disable();
-        }
+        rightThumbstickAction.Disable();
     }
 
     private void OnEnable()
     {
-        if(rightThumbstick != null && rightThumbstick.action != null)
-        {
-            rightThumbstick.action.performed += OnThumbstickChanged;
-            rightThumbstick.action.canceled += OnThumbstickChanged;
-        }
+        rightThumbstickAction = InputManager.Actions.XRIRight.Thumbstick;
+
+        rightThumbstickAction.performed += OnThumbstickChanged;
+        rightThumbstickAction.canceled += OnThumbstickChanged;
+
+        isGrabbed = true; //Test purpose
+        rightThumbstickAction.Enable();
     }
 
     private void OnDisable()
     {
-        if(rightThumbstick != null && rightThumbstick.action != null)
-        {
-            rightThumbstick.action.performed -= OnThumbstickChanged;
-            rightThumbstick.action.canceled -= OnThumbstickChanged;
-            rightThumbstick.action.Disable();
-        }
+        rightThumbstickAction.performed -= OnThumbstickChanged;
+        rightThumbstickAction.canceled -= OnThumbstickChanged;
+        rightThumbstickAction.Disable();
     }
 
     private void OnThumbstickChanged(InputAction.CallbackContext context)
     {
-        if (!isGrabbed) return;
-
         Vector2 axis = context.ReadValue<Vector2>();
 
         if (Mathf.Abs(axis.y) <= deadzone)
@@ -103,30 +78,29 @@ public class RightLever : MonoBehaviour
 
         if(holdCoroutine == null)
         {
-            holdCoroutine = StartCoroutine(HoldMoveRoutine());
+            holdCoroutine = StartCoroutine(HookMoveRoutine());
         }
 
         //No need to use axis.x for now
     }
 
-    private IEnumerator HoldMoveRoutine()
+    private IEnumerator HookMoveRoutine()
     {
         while (true)
         {
-            if (!isGrabbed || rightThumbstick == null || rightThumbstick.action == null)
-            {
-                holdCoroutine = null;
-                yield break;
-            }
+            //if (!isGrabbed || rightThumbstickAction == null)
+            //{
+            //    holdCoroutine = null;
+            //    yield break;
+            //}
 
-            float currentY = rightThumbstick.action.ReadValue<Vector2>().y;
+            float currentY = rightThumbstickAction.ReadValue<Vector2>().y;
 
             if (Mathf.Abs(currentY) <= deadzone)
             {
                 holdCoroutine = null;
                 yield break;
             }
-
             CraneController.MoveHookY(currentY);
             Debug.Log($"[RightLever] (Hold) Joystick Y: {currentY:F2}");
 
@@ -136,16 +110,10 @@ public class RightLever : MonoBehaviour
 
     private void OnDestroy()
     {
-        if(grabInteractable!= null)
-        {
-            grabInteractable.selectEntered.RemoveListener(OnGrabbed);
-            grabInteractable.selectExited.RemoveListener(OnReleased);
-        }
+        grabInteractable.selectEntered.RemoveListener(OnGrabbed);
+        grabInteractable.selectExited.RemoveListener(OnReleased);
 
-        if(rightThumbstick != null && rightThumbstick.action != null)
-        {
-            rightThumbstick.action.performed -= OnThumbstickChanged;
-            rightThumbstick.action.canceled -= OnThumbstickChanged;
-        }
+        rightThumbstickAction.performed -= OnThumbstickChanged;
+        rightThumbstickAction.canceled -= OnThumbstickChanged;
     }
 }

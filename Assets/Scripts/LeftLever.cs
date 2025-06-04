@@ -1,77 +1,151 @@
-// RightLever.cs
-using System.Collections.Generic;
+﻿// LeftLever.cs
+using System.Collections;
 using UnityEngine;
-using UnityEngine.XR;
+using UnityEngine.InputSystem;
+using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 public class LeftLever : MonoBehaviour
 {
-    private InputDevice targetDevice;
-
+    [Header("CraneController Reference")]
     public CraneController CraneController;
 
-    void Start()
+    private InputAction leftThumbstickAction;
+    private XRGrabInteractable grabInteractable;
+    private float deadzone = 0.1f;
+    private Coroutine holdCoroutine = null;
+    private bool isGrabbed = false;
+
+    private void Awake()
     {
-        List<InputDevice> devices = new List<InputDevice>();
-        InputDeviceCharacteristics leftControllerCharacteristics =
-            InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller;
+        grabInteractable = GetComponent<XRGrabInteractable>();
 
-        InputDevices.GetDevicesWithCharacteristics(leftControllerCharacteristics, devices);
-
-        foreach (var device in devices)
-        {
-            Debug.Log($"[LeftLever] Device found: {device.name}, characteristics: {device.characteristics}");
-        }
-
-        if (devices.Count > 0)
-        {
-            targetDevice = devices[0];
-        }
-        else
-        {
-            Debug.LogWarning("[LeftLever] Left5 controller bulunamadı! (Cihaz bağlı değilse lütfen Device Simulator ekleyin veya gerçek VR bağlayın)");
-        }
+        grabInteractable.selectEntered.AddListener(OnGrabbed);
+        grabInteractable.selectExited.AddListener(OnReleased);
     }
 
-    void Update()
+    private void Start()
     {
-        if (!targetDevice.isValid)
+        leftThumbstickAction = InputManager.Actions.XRILeft.Thumbstick;
+
+        leftThumbstickAction.performed += OnThumbstickChanged;
+        leftThumbstickAction.canceled += OnThumbstickChanged;
+        leftThumbstickAction.Disable();
+        leftThumbstickAction.Enable();
+        isGrabbed = true;
+    }
+
+    private void OnDestroy()
+    {
+        grabInteractable.selectEntered.RemoveListener(OnGrabbed);
+        grabInteractable.selectExited.RemoveListener(OnReleased);
+
+        leftThumbstickAction.performed -= OnThumbstickChanged;
+        leftThumbstickAction.canceled -= OnThumbstickChanged;
+    }
+
+    private void OnEnable()
+    {
+        leftThumbstickAction.performed += OnThumbstickChanged;
+        leftThumbstickAction.canceled += OnThumbstickChanged;
+    }
+
+    private void OnDisable()
+    {
+        leftThumbstickAction.performed -= OnThumbstickChanged;
+        leftThumbstickAction.canceled -= OnThumbstickChanged;
+        leftThumbstickAction.Disable();
+    }
+
+    private void OnGrabbed(SelectEnterEventArgs args)
+    {
+        isGrabbed = true;
+        leftThumbstickAction.Enable();
+    }
+
+    private void OnReleased(SelectExitEventArgs args)
+    {
+        isGrabbed = false;
+
+        if (holdCoroutine != null)
         {
-            ReinitializeDevice();
+            StopCoroutine(holdCoroutine);
+            holdCoroutine = null;
+        }
+
+        leftThumbstickAction?.Disable();
+    }
+
+    private void OnThumbstickChanged(InputAction.CallbackContext context)
+    {
+
+        Vector2 axis = context.ReadValue<Vector2>();
+        Debug.Log($"[LeftLever] Axis: X={axis.x:F2}, Y={axis.y:F2}");
+
+        bool moveCar = Mathf.Abs(axis.y) >= Mathf.Abs(axis.x);
+        float value = moveCar ? axis.y : axis.x;
+
+        if (Mathf.Abs(value) <= deadzone)
+        {
+            if (holdCoroutine != null)
+            {
+                StopCoroutine(holdCoroutine);
+                holdCoroutine = null;
+            }
             return;
         }
 
-        if (targetDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 axis))
+        if (holdCoroutine == null)
         {
-            float deadzone = 0.05f;
-
-            if (Mathf.Abs(axis.y) > deadzone && Mathf.Abs(axis.y) > Mathf.Abs(axis.x))
-            {
-                Debug.Log($"[LeftLever] Joystick Y: {axis.y:F2}");
-                //car
-                CraneController.MoveCar(axis.y);
-            }
-
-            if (Mathf.Abs(axis.x) > deadzone && Mathf.Abs(axis.x) > Mathf.Abs(axis.y))
-            {
-                Debug.Log($"[LeftLever] Joystick X: {axis.x:F2}");
-                //boom
-                CraneController.CraneRotation(axis.x);
-            }
+            holdCoroutine = moveCar
+                ? StartCoroutine(CarMoveRoutine())
+                : StartCoroutine(BoomRotateRoutine());
         }
     }
 
-    private void ReinitializeDevice()
+    private IEnumerator CarMoveRoutine()
     {
-        List<InputDevice> devices = new List<InputDevice>();
-        InputDeviceCharacteristics leftControllerCharacteristics =
-            InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller;
-
-        InputDevices.GetDevicesWithCharacteristics(leftControllerCharacteristics, devices);
-        
-        if (devices.Count > 0)
+        while (true)
         {
-            targetDevice = devices[0];
-            Debug.Log("[LeftLever] targetDevice yeniden atandı: " + targetDevice.name);
+            if (!isGrabbed)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            float currentY = leftThumbstickAction.ReadValue<Vector2>().y;
+            if (Mathf.Abs(currentY) <= deadzone)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            CraneController.MoveCar(currentY);
+            Debug.Log($"[LeftLever] (Hold) Car Move Y: {currentY:F2}");
+            yield return null;
+        }
+    }
+
+    private IEnumerator BoomRotateRoutine()
+    {
+        while (true)
+        {
+            if (!isGrabbed)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            float currentX = leftThumbstickAction.ReadValue<Vector2>().x;
+            if (Mathf.Abs(currentX) <= deadzone)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            CraneController.CraneRotation(currentX);
+            Debug.Log($"[LeftLever] (Hold) Boom Rotate X: {currentX:F2}");
+            yield return null;
         }
     }
 }

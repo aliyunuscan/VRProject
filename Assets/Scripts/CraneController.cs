@@ -30,7 +30,7 @@ public class CraneController : MonoBehaviour
 
         float delta = input * hookSpeed * Time.deltaTime;
 
-        if (delta > 0f && hookSJ.maxDistance < 15.0f) hookSJ.maxDistance += delta;
+        if (hookSJ.maxDistance < 15.0f && hookSJ.maxDistance >= 0.0f) hookSJ.maxDistance += delta;
         
         // Vector3 localPos = hook.localPosition;
         // float newY = Mathf.Clamp(localPos.y + delta, car.localPosition.y - ropeLength, car.localPosition.y - carYSize);
