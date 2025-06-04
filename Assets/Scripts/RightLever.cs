@@ -1,74 +1,151 @@
-// RightLever.cs
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit;
+using System.Collections;
 
 public class RightLever : MonoBehaviour
 {
-    private InputDevice targetDevice;
-
+    [Header("CraneController Reference")]
     public CraneController CraneController;
 
-    void Start()
+    [Header("Right Contr. Thumstick Action")]
+    [Tooltip("XRI Default Input Actions → XRI RightHand → Thumbstick")]
+    public InputActionReference rightThumbstick;
+
+    // Lever’ın grab durumunu tutacak bayrak
+    private bool isGrabbed = false;
+
+    // XRGrabInteractable referansı (aynı GameObject üzerinde olmalı)
+    private XRGrabInteractable grabInteractable;
+
+    private float deadzone = 0.1f;
+
+    private Coroutine holdCoroutine = null;
+
+    private void Awake()
     {
-        List<InputDevice> devices = new List<InputDevice>();
-        InputDeviceCharacteristics rightControllerCharacteristics =
-            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller;
-
-        InputDevices.GetDevicesWithCharacteristics(rightControllerCharacteristics, devices);
-
-        foreach (var device in devices)
+        grabInteractable = GetComponent<XRGrabInteractable>();
+        if(grabInteractable == null)
         {
-            Debug.Log($"[RightLever] Device found: {device.name}, characteristics: {device.characteristics}");
-        }
-
-        if (devices.Count > 0)
-        {
-            targetDevice = devices[0];
-        }
-        else
-        {
-            Debug.LogWarning("[RightLever] Right controller bulunamadı! (Cihaz bağlı değilse lütfen Device Simulator ekleyin veya gerçek VR bağlayın)");
-        }
-    }
-
-    void Update()
-    {
-        if (!targetDevice.isValid)
-        {
-            ReinitializeDevice();
+            Debug.LogError("XRGrabInteractable could ntot found on RightLever");
             return;
         }
 
-        if (targetDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 axis))
+        grabInteractable.selectEntered.AddListener(OnGrabbed);
+        grabInteractable.selectExited.AddListener(OnReleased);
+
+        isGrabbed = true; //Test purpose
+    }
+
+    private void OnGrabbed(SelectEnterEventArgs enterArgs)
+    {
+        isGrabbed = true;
+
+        if(rightThumbstick != null && rightThumbstick.action != null)
         {
-            float deadzone = 0.1f;
-
-            if (Mathf.Abs(axis.y) > deadzone)
-            {
-                Debug.Log($"[RightLever] Joystick Y: {axis.y:F2}");
-                CraneController.MoveHookY(axis.y);
-            }
-
-            if (Mathf.Abs(axis.x) > deadzone)
-            {
-                Debug.Log($"[RightLever] Joystick X: {axis.x:F2}");
-            }
+            rightThumbstick.action.Enable();
         }
     }
 
-    private void ReinitializeDevice()
+    private void OnReleased(SelectExitEventArgs exitArgs)
     {
-        List<InputDevice> devices = new List<InputDevice>();
-        InputDeviceCharacteristics rightControllerCharacteristics =
-            InputDeviceCharacteristics.Right | InputDeviceCharacteristics.Controller;
+        isGrabbed = false;
 
-        InputDevices.GetDevicesWithCharacteristics(rightControllerCharacteristics, devices);
-        
-        if (devices.Count > 0)
+        if(holdCoroutine != null)
         {
-            targetDevice = devices[0];
-            Debug.Log("[RightLever] targetDevice yeniden atandı: " + targetDevice.name);
+            StopCoroutine(holdCoroutine);
+            holdCoroutine = null;
+        }
+
+        if(rightThumbstick != null && rightThumbstick.action != null)
+        {
+            rightThumbstick.action.Disable();
+        }
+    }
+
+    private void OnEnable()
+    {
+        if(rightThumbstick != null && rightThumbstick.action != null)
+        {
+            rightThumbstick.action.performed += OnThumbstickChanged;
+            rightThumbstick.action.canceled += OnThumbstickChanged;
+        }
+    }
+
+    private void OnDisable()
+    {
+        if(rightThumbstick != null && rightThumbstick.action != null)
+        {
+            rightThumbstick.action.performed -= OnThumbstickChanged;
+            rightThumbstick.action.canceled -= OnThumbstickChanged;
+            rightThumbstick.action.Disable();
+        }
+    }
+
+    private void OnThumbstickChanged(InputAction.CallbackContext context)
+    {
+        if (!isGrabbed) return;
+
+        Vector2 axis = context.ReadValue<Vector2>();
+
+        if (Mathf.Abs(axis.y) <= deadzone)
+        {
+            if(holdCoroutine != null)
+            {
+                StopCoroutine(holdCoroutine);
+                holdCoroutine = null;
+            }
+            return;
+        }
+
+        if(holdCoroutine == null)
+        {
+            holdCoroutine = StartCoroutine(HoldMoveRoutine());
+        }
+
+        //No need to use axis.x for now
+    }
+
+    private IEnumerator HoldMoveRoutine()
+    {
+        while (true)
+        {
+            if (!isGrabbed || rightThumbstick == null || rightThumbstick.action == null)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            float currentY = rightThumbstick.action.ReadValue<Vector2>().y;
+
+            if (Mathf.Abs(currentY) <= deadzone)
+            {
+                holdCoroutine = null;
+                yield break;
+            }
+
+            CraneController.MoveHookY(currentY);
+            Debug.Log($"[RightLever] (Hold) Joystick Y: {currentY:F2}");
+
+            yield return null;//wait till next frame
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if(grabInteractable!= null)
+        {
+            grabInteractable.selectEntered.RemoveListener(OnGrabbed);
+            grabInteractable.selectExited.RemoveListener(OnReleased);
+        }
+
+        if(rightThumbstick != null && rightThumbstick.action != null)
+        {
+            rightThumbstick.action.performed -= OnThumbstickChanged;
+            rightThumbstick.action.canceled -= OnThumbstickChanged;
         }
     }
 }
